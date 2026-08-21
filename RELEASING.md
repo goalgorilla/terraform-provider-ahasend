@@ -10,7 +10,7 @@ First public tag: **`v0.1.0`**.
 2. GPG key (RSA/DSA): register **public** key on [registry.terraform.io](https://registry.terraform.io/); store private key + passphrase as GitHub secrets `GPG_PRIVATE_KEY` and `PASSPHRASE`
 3. Green CI on `main`
 
-Automation: `.github/workflows/release.yml` + `.goreleaser.yml` (first release is created as a **draft** so you can review assets before publishing).
+Automation: `.github/workflows/release.yml` + `.goreleaser.yml` (GoReleaser publishes the GitHub Release when the tag workflow succeeds).
 
 ## Cut a release
 
@@ -21,8 +21,8 @@ git tag -a v0.1.0 -m "v0.1.0"
 git push origin v0.1.0
 ```
 
-1. Watch the Release workflow; review the **draft** GitHub Release assets; publish the draft.
-2. First time only: [Publish → Provider](https://registry.terraform.io/publish/provider) for this repo.
+1. Watch the Release workflow until GoReleaser finishes and the GitHub Release is published.
+2. First time only: [Publish → Provider](https://registry.terraform.io/publish/provider) for this repo. Later tags are picked up automatically once the provider is linked.
 
 Consumers:
 

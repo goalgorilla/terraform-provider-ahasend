@@ -55,9 +55,7 @@ signs:
       - "--detach-sign"
       - "${artifact}"
 release:
-  # First release: leave as draft so assets can be reviewed before the GitHub Release goes live.
-  # Set to false (or remove) once the release pipeline is trusted.
-  draft: true
+  draft: false
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
