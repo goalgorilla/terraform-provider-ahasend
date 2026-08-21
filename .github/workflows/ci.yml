@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Format check
+        run: |
+          gofmt -s -l ./main.go ./internal | tee /tmp/gofmt.out
+          test ! -s /tmp/gofmt.out
+      - name: Build
+        run: go build -v -o bin/terraform-provider-ahasend .
+      - name: Test
+        run: go test -v -cover -timeout=120s ./...
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Diataxis and registry docs exist
+        run: |
+          test -f docs/index.md
+          test -f docs/resources/domain.md
+          test -f docs/resources/api_key.md
+          test -f docs/resources/webhook.md
+          test -f docs/resources/smtp_credential.md
+          test -f docs/resources/sub_account.md
+          test -f docs/resources/sub_account_api_key.md
+          test -f docs/guides/getting-started.md
+          test -f docs/guides/check-dns.md
+          test -f docs/guides/custom-domain-dns.md
+          test -f docs/guides/import-domain.md
+          test -f docs/guides/sub-account-child-domain.md
+          test -f docs/explanation/dns-valid-apply.md
+          test -f docs/explanation/accounts-and-subaccounts.md
+          test -f docs/explanation/rate-limits-and-idempotency.md
+          test -f docs/explanation/scopes.md
+          test -f docs/explanation/secrets.md
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.11.4"
+          terraform_wrapper: false
+      - name: Generate docs and check for drift
+        run: |
+          make generate
+          git diff --exit-code -- docs/ templates/ examples/

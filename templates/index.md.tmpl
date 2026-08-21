@@ -1,0 +1,27 @@
+---
+page_title: "AhaSend Provider"
+description: |-
+  Manage AhaSend sending domains, API keys, webhooks, SMTP credentials, and Platform Partner sub accounts.
+---
+
+# AhaSend Provider
+
+The AhaSend provider manages AhaSend account resources such as sending domains, API keys, webhooks, SMTP credentials, and (optionally) Platform Partner sub accounts.
+
+Configure it with an API key and account ID for the AhaSend account you want to manage. Authenticate as a sub account by pointing a provider alias at that child's credentials.
+
+-> **Note:** This provider is unofficial and not affiliated with AhaSend. Pin a version such as `~> 0.1.0`.
+
+## Example Usage
+
+{{tffile "examples/provider/provider.tf"}}
+
+{{ .SchemaMarkdown | trimspace }}
+
+## Guides
+
+- [Getting started](guides/getting-started.md)
+- [Custom DKIM / return-path / tracking](guides/custom-domain-dns.md)
+- [Trigger a DNS check](guides/check-dns.md)
+- [Sub account and child domain](guides/sub-account-child-domain.md)
+- [Import a domain](guides/import-domain.md)
