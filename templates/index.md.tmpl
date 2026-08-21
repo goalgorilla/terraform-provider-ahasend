@@ -1,16 +1,41 @@
 ---
 page_title: "AhaSend Provider"
 description: |-
-  Manage AhaSend sending domains, API keys, webhooks, SMTP credentials, and Platform Partner sub accounts.
+  Unofficial Terraform / OpenTofu provider for AhaSend — manage sending domains, API keys, webhooks, SMTP credentials, and Platform Partner sub accounts.
 ---
 
 # AhaSend Provider
 
-The AhaSend provider manages AhaSend account resources such as sending domains, API keys, webhooks, SMTP credentials, and (optionally) Platform Partner sub accounts.
+[AhaSend](https://ahasend.com/) is a transactional email platform for developers: send mail over HTTP or SMTP, verify domains (SPF/DKIM/DMARC), and handle delivery events with webhooks.
 
-Configure it with an API key and account ID for the AhaSend account you want to manage. Authenticate as a sub account by pointing a provider alias at that child's credentials.
+This provider is an **unofficial** Terraform integration for AhaSend account setup. It is maintained by [Open Social](https://www.getopensocial.com/) and is **not affiliated with AhaSend**. Prefer AhaSend’s own docs and support for product questions.
 
--> **Note:** This provider is unofficial and not affiliated with AhaSend. Pin a version such as `~> 0.1.0`.
+## What you can manage
+
+| Resource | Purpose |
+| --- | --- |
+| [`ahasend_domain`](resources/domain) | Sending domain, DNS records, optional Partner DKIM settings |
+| [`ahasend_api_key`](resources/api_key) | Account API keys and scopes |
+| [`ahasend_webhook`](resources/webhook) | Delivery / engagement webhooks |
+| [`ahasend_smtp_credential`](resources/smtp_credential) | SMTP credentials (global or domain-scoped) |
+| [`ahasend_sub_account`](resources/sub_account) | Platform Partner child accounts |
+| [`ahasend_sub_account_api_key`](resources/sub_account_api_key) | Bootstrap API keys for sub accounts |
+
+Configure the provider with an API key and account ID for the AhaSend account you manage. For Platform Partner workflows, authenticate as a child with a **provider alias** (see [Sub account and child domain](guides/sub-account-child-domain.md)).
+
+## AhaSend links
+
+- [AhaSend](https://ahasend.com/) — product home
+- [AhaSend documentation](https://ahasend.com/docs) — guides and API reference
+- [AhaSend dashboard](https://dash.ahasend.com/) — create an account and manage keys
+- [AhaSend OpenAPI](https://ahasend.com/docs/openapi.yaml) — machine-readable API contract
+- [AhaSend Go SDK](https://github.com/AhaSend/ahasend-go) — client used by this provider at runtime
+
+## Provider documentation
+
+Start with [Getting started](guides/getting-started.md). Pin a version such as `~> 0.1.0`.
+
+Source and issues: [github.com/goalgorilla/terraform-provider-ahasend](https://github.com/goalgorilla/terraform-provider-ahasend).
 
 ## Example Usage
 
