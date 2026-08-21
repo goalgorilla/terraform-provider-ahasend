@@ -8,7 +8,7 @@ description: |-
 
 [AhaSend](https://ahasend.com/) is a transactional email platform for developers: send mail over HTTP or SMTP, verify domains (SPF/DKIM/DMARC), and handle delivery events with webhooks.
 
-This provider is an **unofficial** Terraform / OpenTofu integration for AhaSend account setup. It is maintained by [GoalGorilla / Open Social](https://www.getopensocial.com/) and is **not affiliated with AhaSend**. Prefer AhaSend’s own docs and support for product questions.
+This provider is an **unofficial** Terraform integration for AhaSend account setup. It is maintained by [Open Social](https://www.getopensocial.com/) and is **not affiliated with AhaSend**. Prefer AhaSend’s own docs and support for product questions.
 
 ## What you can manage
 
