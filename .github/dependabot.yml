@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Maintain dependencies for GitHub Actions - Update once every week.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+
+  # Maintain Go module dependencies - Update once every week.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
