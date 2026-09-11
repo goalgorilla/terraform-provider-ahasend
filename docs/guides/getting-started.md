@@ -31,7 +31,7 @@ terraform init
 
 ### Local build (`dev_overrides`)
 
-For unreleased commits: Go 1.25+, then:
+For unreleased commits: Go 1.27+, then:
 
 ```bash
 git clone https://github.com/goalgorilla/terraform-provider-ahasend.git
