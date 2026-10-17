@@ -1,5 +1,5 @@
-github.com/AhaSend/ahasend-go v0.2.0 h1:u+ACps2LJAPt9OMPvfoXduJ2obN09X7jNzvMLhueDK8=
-github.com/AhaSend/ahasend-go v0.2.0/go.mod h1:XYkdqhHJQZQqNduxsTxEUp1oxK3P3UbjteBCArii2AU=
+github.com/AhaSend/ahasend-go v0.3.1 h1:jtpUyPvgAI3W6lGO69k6Umcx3rzKyGobecIYyyhF1Sg=
+github.com/AhaSend/ahasend-go v0.3.1/go.mod h1:XYkdqhHJQZQqNduxsTxEUp1oxK3P3UbjteBCArii2AU=
 github.com/bufbuild/protocompile v0.14.1 h1:iA73zAf/fyljNjQKwYzUHD6AD4R8KMasmwa/FBatYVw=
 github.com/bufbuild/protocompile v0.14.1/go.mod h1:ppVdAIhbr2H8asPk6k4pY7t9zB1OU5DoEw9xY/FUi1c=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
