@@ -1,10 +1,10 @@
 # Sub account and child domain
 
-Platform Partner only. Prefer a **provider alias** for child credentials.
+Platform Partner only. AhaSend rejects the **parent** API key on child domain routes (`/v2/accounts/{child_id}/domains`). Use a child API key for `ahasend_domain`.
 
-Terraform cannot initialize a provider configuration from attributes of resources managed in the same configuration (for example `api_key = ahasend_sub_account_api_key.bootstrap.secret_key`). Use a two-step apply: bootstrap the sub account and key first, then manage child-owned resources with credentials supplied via variables or environment.
+Terraform cannot put a resource attribute on a **provider** block in the same configuration. Prefer the resource-level `api_key` on `ahasend_domain` so one apply can create the child key and the domain.
 
-## Step 1 — Bootstrap (parent provider)
+## Single apply (parent provider + resource `api_key`)
 
 ```hcl
 provider "ahasend" {
@@ -16,9 +16,9 @@ resource "ahasend_sub_account" "project" {
   website = "customer.example.com"
 }
 
-resource "ahasend_sub_account_api_key" "bootstrap" {
+resource "ahasend_sub_account_api_key" "domains" {
   sub_account_id = ahasend_sub_account.project.id
-  label          = "terraform"
+  label          = "terraform-domains"
   scopes = [
     "domains:read",
     "domains:write",
@@ -26,40 +26,11 @@ resource "ahasend_sub_account_api_key" "bootstrap" {
   ]
 }
 
-output "child_account_id" {
-  value = ahasend_sub_account.project.id
-}
-
-output "child_api_key" {
-  value     = ahasend_sub_account_api_key.bootstrap.secret_key
-  sensitive = true
-}
-```
-
-Apply, then copy the outputs into environment variables or a secrets store (the `secret_key` is returned once on create; import cannot recover it).
-
-## Step 2 — Child resources (separate apply / workspace)
-
-```hcl
-variable "child_api_key" {
-  type      = string
-  sensitive = true
-}
-
-variable "child_account_id" {
-  type = string
-}
-
-provider "ahasend" {
-  alias      = "child"
-  api_key    = var.child_api_key
-  account_id = var.child_account_id
-}
-
 resource "ahasend_domain" "child_sending" {
-  provider = ahasend.child
-  domain   = "mail.customer.example.com"
+  account_id = ahasend_sub_account.project.id
+  api_key    = ahasend_sub_account_api_key.domains.secret_key
+  domain     = "mail.customer.example.com"
 }
 ```
 
-Alternatively, keep using the parent provider and set optional `account_id` on `ahasend_domain` while authenticating with a key that can act on that child account.
+The domain resource stores `api_key` sensitive in state so Read/Delete can authenticate. Provider aliases remain valid when credentials are supplied from variables or a prior apply.

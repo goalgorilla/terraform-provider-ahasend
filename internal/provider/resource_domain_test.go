@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AhaSend/ahasend-go/api"
 	"github.com/AhaSend/ahasend-go/models/responses"
 	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -101,6 +102,60 @@ func TestFlattenDomainDNSRecords(t *testing.T) {
 	}
 	if !out.DKIMPrivateKey.IsNull() {
 		t.Fatal("write-only dkim_private_key must be null in state")
+	}
+}
+
+func TestApplyResourceAPIKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("noop when null", func(t *testing.T) {
+		t.Parallel()
+		cfg := api.RequestConfig{}
+		applyResourceAPIKey(&cfg, types.StringNull())
+		if cfg.Headers != nil {
+			if _, ok := cfg.Headers["Authorization"]; ok {
+				t.Fatal("expected no Authorization header")
+			}
+		}
+	})
+
+	t.Run("sets bearer", func(t *testing.T) {
+		t.Parallel()
+		cfg := api.RequestConfig{}
+		applyResourceAPIKey(&cfg, types.StringValue("aha-sk-test"))
+		if got := cfg.Headers["Authorization"]; got != "Bearer aha-sk-test" {
+			t.Fatalf("Authorization = %q", got)
+		}
+	})
+}
+
+func TestFlattenDomainPreservesAPIKey(t *testing.T) {
+	t.Parallel()
+
+	domainID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	accountID := uuid.MustParse("44444444-4444-4444-4444-444444444444")
+	apiDomain := &domainAPIResponse{
+		Domain: responses.Domain{
+			ID:        domainID,
+			AccountID: accountID,
+			Domain:    "mail.example.com",
+			CreatedAt: time.Unix(0, 0).UTC(),
+			UpdatedAt: time.Unix(0, 0).UTC(),
+		},
+	}
+
+	r := &DomainResource{}
+	prior := DomainResourceModel{
+		CheckDNS: types.BoolValue(true),
+		APIKey:   types.StringValue("aha-sk-child"),
+	}
+	var out DomainResourceModel
+	diags := r.flattenDomain(context.Background(), apiDomain, prior, &out)
+	if diags.HasError() {
+		t.Fatalf("flattenDomain diagnostics: %v", diags)
+	}
+	if out.APIKey.ValueString() != "aha-sk-child" {
+		t.Fatalf("api_key = %q, want preserved child key", out.APIKey.ValueString())
 	}
 }
 
