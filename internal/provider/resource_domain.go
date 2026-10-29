@@ -58,6 +58,7 @@ type DomainResourceModel struct {
 	ID                       types.String `tfsdk:"id"`
 	Domain                   types.String `tfsdk:"domain"`
 	AccountID                types.String `tfsdk:"account_id"`
+	APIKey                   types.String `tfsdk:"api_key"`
 	TrackingSubdomain        types.String `tfsdk:"tracking_subdomain"`
 	ReturnPathSubdomain      types.String `tfsdk:"return_path_subdomain"`
 	SubscriptionSubdomain    types.String `tfsdk:"subscription_subdomain"`
@@ -123,7 +124,10 @@ func (r *DomainResource) Schema(ctx context.Context, req resource.SchemaRequest,
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages an AhaSend sending domain on the configured account (parent by default). " +
 			"Optional custom subdomains and Partner-only DKIM settings are supported. " +
-			"DNS verification is checked when `check_dns` is true, but apply does **not** fail when `dns_valid` is false.",
+			"DNS verification is checked when `check_dns` is true, but apply does **not** fail when `dns_valid` is false. " +
+			"For Platform Partner sub-account domains in the same root module, set `account_id` to the child " +
+			"account and `api_key` to that child's API key (for example from `ahasend_sub_account_api_key`); " +
+			"AhaSend rejects the parent key on child domain routes.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "AhaSend domain UUID.",
@@ -144,13 +148,22 @@ func (r *DomainResource) Schema(ctx context.Context, req resource.SchemaRequest,
 			},
 			"account_id": schema.StringAttribute{
 				MarkdownDescription: "Account UUID that owns the domain. Defaults to the provider `account_id`. " +
-					"Set this (with a matching provider alias API key) when managing a sub account domain.",
+					"Set this to a sub-account UUID when managing a child domain (with a matching child `api_key`).",
 				Optional: true,
 				Computed: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 					stringplanmodifier.RequiresReplace(),
 				},
+			},
+			"api_key": schema.StringAttribute{
+				MarkdownDescription: "Optional Bearer token for this resource's API calls. " +
+					"When set, overrides the provider `api_key` so a child sub-account key can manage " +
+					"that child's domain in the same apply as `ahasend_sub_account_api_key`. " +
+					"Stored sensitive in state (required for Read/Delete; write-only is not available on Read). " +
+					"Omit to use the provider credentials.",
+				Optional:  true,
+				Sensitive: true,
 			},
 			"tracking_subdomain": schema.StringAttribute{
 				MarkdownDescription: "Optional custom tracking subdomain. Omit on create to use the account/product default; " +
@@ -433,6 +446,7 @@ func (r *DomainResource) Create(ctx context.Context, req resource.CreateRequest,
 		Result: &result,
 	}
 	api.WithIdempotencyKey(idempotencyKey)(&reqConfig)
+	applyResourceAPIKey(&reqConfig, plan.APIKey)
 	_, err := r.client.api.Execute(ctx, reqConfig)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -444,7 +458,7 @@ func (r *DomainResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	domain := &result
 	if plan.CheckDNS.ValueBool() {
-		checked, checkErr := r.checkDNS(ctx, accountID, plan.Domain.ValueString())
+		checked, checkErr := r.checkDNS(ctx, accountID, plan.Domain.ValueString(), plan.APIKey)
 		if checkErr != nil {
 			resp.Diagnostics.AddWarning(
 				"Domain created but DNS check failed",
@@ -481,9 +495,9 @@ func (r *DomainResource) Read(ctx context.Context, req resource.ReadRequest, res
 	var domain *domainAPIResponse
 	var err error
 	if state.CheckDNS.ValueBool() && shouldCheckDNS(state.LastDNSCheckAt) {
-		domain, err = r.checkDNS(ctx, accountID, state.Domain.ValueString())
+		domain, err = r.checkDNS(ctx, accountID, state.Domain.ValueString(), state.APIKey)
 	} else {
-		domain, err = r.getDomain(ctx, accountID, state.Domain.ValueString())
+		domain, err = r.getDomain(ctx, accountID, state.Domain.ValueString(), state.APIKey)
 	}
 	if err != nil {
 		if isNotFound(err) {
@@ -592,7 +606,7 @@ func (r *DomainResource) Update(ctx context.Context, req resource.UpdateRequest,
 	var domain *domainAPIResponse
 	if hasUpdate {
 		var result domainAPIResponse
-		_, err := r.client.api.Execute(ctx, api.RequestConfig{
+		reqConfig := api.RequestConfig{
 			Method:       http.MethodPut,
 			PathTemplate: "/v2/accounts/{account_id}/domains/{domain}",
 			PathParams: map[string]string{
@@ -601,7 +615,9 @@ func (r *DomainResource) Update(ctx context.Context, req resource.UpdateRequest,
 			},
 			Body:   body,
 			Result: &result,
-		})
+		}
+		applyResourceAPIKey(&reqConfig, plan.APIKey)
+		_, err := r.client.api.Execute(ctx, reqConfig)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error updating AhaSend domain",
@@ -612,7 +628,7 @@ func (r *DomainResource) Update(ctx context.Context, req resource.UpdateRequest,
 		domain = &result
 	} else {
 		var err error
-		domain, err = r.getDomain(ctx, accountID, plan.Domain.ValueString())
+		domain, err = r.getDomain(ctx, accountID, plan.Domain.ValueString(), plan.APIKey)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error reading AhaSend domain during update",
@@ -623,7 +639,7 @@ func (r *DomainResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 
 	if plan.CheckDNS.ValueBool() {
-		checked, checkErr := r.checkDNS(ctx, accountID, plan.Domain.ValueString())
+		checked, checkErr := r.checkDNS(ctx, accountID, plan.Domain.ValueString(), plan.APIKey)
 		if checkErr != nil {
 			resp.Diagnostics.AddWarning(
 				"Domain updated but DNS check failed",
@@ -657,7 +673,12 @@ func (r *DomainResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	_, _, err := r.client.api.DomainsAPI.DeleteDomain(ctx, accountID, state.Domain.ValueString())
+	_, _, err := r.client.api.DomainsAPI.DeleteDomain(
+		ctx,
+		accountID,
+		state.Domain.ValueString(),
+		resourceAPIKeyOpts(state.APIKey)...,
+	)
 	if err != nil && !isNotFound(err) {
 		resp.Diagnostics.AddError(
 			"Error deleting AhaSend domain",
@@ -714,9 +735,9 @@ func (r *DomainResource) resolveAccountID(configured types.String) (uuid.UUID, d
 }
 
 // getDomain fetches a domain without triggering DNS validation.
-func (r *DomainResource) getDomain(ctx context.Context, accountID uuid.UUID, domain string) (*domainAPIResponse, error) {
+func (r *DomainResource) getDomain(ctx context.Context, accountID uuid.UUID, domain string, apiKey types.String) (*domainAPIResponse, error) {
 	var result domainAPIResponse
-	_, err := r.client.api.Execute(ctx, api.RequestConfig{
+	reqConfig := api.RequestConfig{
 		Method:       http.MethodGet,
 		PathTemplate: "/v2/accounts/{account_id}/domains/{domain}",
 		PathParams: map[string]string{
@@ -724,7 +745,9 @@ func (r *DomainResource) getDomain(ctx context.Context, accountID uuid.UUID, dom
 			"domain":     domain,
 		},
 		Result: &result,
-	})
+	}
+	applyResourceAPIKey(&reqConfig, apiKey)
+	_, err := r.client.api.Execute(ctx, reqConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -732,9 +755,9 @@ func (r *DomainResource) getDomain(ctx context.Context, accountID uuid.UUID, dom
 }
 
 // checkDNS POSTs AhaSend check-dns and returns the updated domain payload.
-func (r *DomainResource) checkDNS(ctx context.Context, accountID uuid.UUID, domain string) (*domainAPIResponse, error) {
+func (r *DomainResource) checkDNS(ctx context.Context, accountID uuid.UUID, domain string, apiKey types.String) (*domainAPIResponse, error) {
 	var result domainAPIResponse
-	_, err := r.client.api.Execute(ctx, api.RequestConfig{
+	reqConfig := api.RequestConfig{
 		Method:       http.MethodPost,
 		PathTemplate: "/v2/accounts/{account_id}/domains/{domain}/check-dns",
 		PathParams: map[string]string{
@@ -742,11 +765,29 @@ func (r *DomainResource) checkDNS(ctx context.Context, accountID uuid.UUID, doma
 			"domain":     domain,
 		},
 		Result: &result,
-	})
+	}
+	applyResourceAPIKey(&reqConfig, apiKey)
+	_, err := r.client.api.Execute(ctx, reqConfig)
 	if err != nil {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// applyResourceAPIKey sets a per-request Bearer token when the resource api_key is set.
+func applyResourceAPIKey(cfg *api.RequestConfig, apiKey types.String) {
+	if apiKey.IsNull() || apiKey.IsUnknown() || apiKey.ValueString() == "" {
+		return
+	}
+	api.WithRequestAPIKey(apiKey.ValueString())(cfg)
+}
+
+// resourceAPIKeyOpts returns SDK request options for typed domain helpers.
+func resourceAPIKeyOpts(apiKey types.String) []api.RequestOption {
+	if apiKey.IsNull() || apiKey.IsUnknown() || apiKey.ValueString() == "" {
+		return nil
+	}
+	return []api.RequestOption{api.WithRequestAPIKey(apiKey.ValueString())}
 }
 
 // flattenDomain copies API domain fields into state; write-only DKIM key stays null.
@@ -767,6 +808,9 @@ func (r *DomainResource) flattenDomain(ctx context.Context, domain *domainAPIRes
 	if out.CheckDNS.IsNull() || out.CheckDNS.IsUnknown() {
 		out.CheckDNS = types.BoolValue(true)
 	}
+
+	// Resource api_key is not returned by the API; preserve from prior state/plan.
+	out.APIKey = prior.APIKey
 
 	out.TrackingSubdomain = optionalString(apiDomain.TrackingSubdomain, prior.TrackingSubdomain)
 	out.ReturnPathSubdomain = optionalString(apiDomain.ReturnPathSubdomain, prior.ReturnPathSubdomain)
