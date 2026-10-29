@@ -2,12 +2,12 @@
 page_title: "ahasend_domain Resource - ahasend"
 subcategory: ""
 description: |-
-  Manages an AhaSend sending domain on the configured account (parent by default). Optional custom subdomains and Partner-only DKIM settings are supported. DNS verification is checked when check_dns is true, but apply does not fail when dns_valid is false.
+  Manages an AhaSend sending domain on the configured account (parent by default). Optional custom subdomains and Partner-only DKIM settings are supported. DNS verification is checked when check_dns is true, but apply does not fail when dns_valid is false. For Platform Partner sub-account domains in the same root module, set account_id to the child account and api_key to that child's API key (for example from ahasend_sub_account_api_key); AhaSend rejects the parent key on child domain routes.
 ---
 
 # ahasend_domain (Resource)
 
-Manages an AhaSend sending domain on the configured account (parent by default). Optional custom subdomains and Partner-only DKIM settings are supported. DNS verification is checked when `check_dns` is true, but apply does **not** fail when `dns_valid` is false.
+Manages an AhaSend sending domain on the configured account (parent by default). Optional custom subdomains and Partner-only DKIM settings are supported. DNS verification is checked when `check_dns` is true, but apply does **not** fail when `dns_valid` is false. For Platform Partner sub-account domains in the same root module, set `account_id` to the child account and `api_key` to that child's API key (for example from `ahasend_sub_account_api_key`); AhaSend rejects the parent key on child domain routes.
 
 ## Example Usage
 
@@ -64,7 +64,8 @@ resource "ahasend_domain" "partner" {
 
 > **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
 
-- `account_id` (String) Account UUID that owns the domain. Defaults to the provider `account_id`. Set this (with a matching provider alias API key) when managing a sub account domain.
+- `account_id` (String) Account UUID that owns the domain. Defaults to the provider `account_id`. Set this to a sub-account UUID when managing a child domain (with a matching child `api_key`).
+- `api_key` (String, Sensitive) Optional Bearer token for this resource's API calls. When set, overrides the provider `api_key` so a child sub-account key can manage that child's domain in the same apply as `ahasend_sub_account_api_key`. Stored sensitive in state (required for Read/Delete; write-only is not available on Read). Omit to use the provider credentials.
 - `check_dns` (Boolean) When true (default), trigger AhaSend DNS validation after create/update and on refresh. Read skips a new check-dns POST when `last_dns_check_at` is within the last 60 seconds (API cache window). Does not fail apply when DNS is invalid.
 - `dkim_private_key` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Optional DKIM RSA private key (Platform Partner, write-only). Minimum 1024 bits; 2048 recommended. Not returned by the API and not persisted in Terraform state (requires Terraform 1.11+). Do not generate keys in the provider. To rotate on update, change `dkim_private_key_version` and supply a new `dkim_private_key` in the same apply.
 - `dkim_private_key_version` (String) Optional opaque version/trigger for DKIM private key rotation. Changing this value causes Update to read write-only `dkim_private_key` from configuration and send it to AhaSend. The key itself is never stored in state.
