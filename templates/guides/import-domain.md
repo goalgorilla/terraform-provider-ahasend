@@ -32,4 +32,4 @@ terraform import ahasend_domain.child_sending \
   00000000-0000-0000-0000-000000000004/mail.customer.example.com
 ```
 
-Then switch the resource to the parent provider, set `api_key` (for example from `ahasend_sub_account_api_key`), and apply so the child key is written into state before the next refresh.
+Then switch the resource to the parent provider, set `api_key` (for example from `ahasend_sub_account_api_key`), and run `terraform apply -refresh=false` so the child key is written into state before the next refresh.
