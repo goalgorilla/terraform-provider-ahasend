@@ -34,3 +34,17 @@ resource "ahasend_domain" "child_sending" {
 ```
 
 The domain resource stores `api_key` sensitive in state so Read/Delete can authenticate. Provider aliases remain valid when credentials are supplied from variables or a prior apply.
+
+## Import
+
+See [Import an existing domain](import-domain). For child domains, import with a child provider alias first (so Read succeeds), then move to the resource `api_key` pattern above.
+
+## Revoked child API key
+
+Refresh uses the `api_key` already in state. If that key was revoked, Read fails before Terraform can apply a replacement key from configuration. Recover with refresh disabled, then resume normal applies:
+
+```bash
+terraform apply -refresh=false
+```
+
+After the new `api_key` is in state, subsequent plans and refreshes use it again.
