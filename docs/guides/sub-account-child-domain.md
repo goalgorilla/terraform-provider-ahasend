@@ -56,6 +56,7 @@ resource "ahasend_smtp_credential" "child" {
   name       = "opensocial-smtp"
   scope      = "scoped"
   domains    = ["mail.customer.example.com"]
+  sandbox    = false
 }
 ```
 
@@ -65,7 +66,7 @@ Rotating the child `api_key` is an in-place update (state only); it does not rec
 
 See [Import an existing domain](import-domain). For child domains, import with a child provider alias first (so Read succeeds), then move to the resource `api_key` pattern above.
 
-Child SMTP credentials are the same: `ImportState` does not store `api_key`, so the first Read needs child credentials.
+Child SMTP credentials are the same: `ImportState` does not store `api_key`, so the first Read needs child credentials. Before applying after import, set `name`, `scope`, `domains`, `sandbox`, and `account_id` to match the existing credential — those attributes force replacement (and a new one-time SMTP password) when they differ. Confirm with `terraform plan -refresh=false` that the plan shows no replacement.
 
 ```hcl
 provider "ahasend" {
@@ -80,6 +81,7 @@ resource "ahasend_smtp_credential" "child" {
   name       = "opensocial-smtp"
   scope      = "scoped"
   domains    = ["mail.customer.example.com"]
+  sandbox    = false
 }
 ```
 
