@@ -308,12 +308,34 @@ func (r *SMTPCredentialResource) Read(ctx context.Context, req resource.ReadRequ
 	resp.Diagnostics.Append(resp.State.Set(ctx, &newState)...)
 }
 
-// Update always errors; configuration changes force replacement.
+// Update allows a state-only api_key rotation; all other attributes ForceNew.
 func (r *SMTPCredentialResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError(
-		"Unexpected Update",
-		"ahasend_smtp_credential does not support in-place updates. Changing configuration forces replacement.",
-	)
+	var plan SMTPCredentialResourceModel
+	var state SMTPCredentialResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if !plan.Name.Equal(state.Name) ||
+		!plan.Scope.Equal(state.Scope) ||
+		!plan.Sandbox.Equal(state.Sandbox) ||
+		!plan.Domains.Equal(state.Domains) ||
+		!plan.AccountID.Equal(state.AccountID) ||
+		!plan.ID.Equal(state.ID) {
+		resp.Diagnostics.AddError(
+			"Unexpected Update",
+			"ahasend_smtp_credential only supports in-place updates of api_key. "+
+				"Changing name, scope, sandbox, domains, or account_id forces replacement.",
+		)
+		return
+	}
+
+	// api_key is not an AhaSend SMTP field; persist the planned Bearer for Read/Delete.
+	newState := state
+	newState.APIKey = plan.APIKey
+	resp.Diagnostics.Append(resp.State.Set(ctx, &newState)...)
 }
 
 // Delete removes the SMTP credential; missing resources are treated as success.

@@ -89,12 +89,14 @@ resource "ahasend_smtp_credential" "child" {
 
 ## Import
 
-Import is supported using the following syntax:
+Import is supported using the following syntax. For sub-account credentials, import while the resource uses a **child provider alias** (`ImportState` does not store `api_key`); then set resource-level `api_key` with `terraform apply -refresh=false`. See the [sub-account child domain](../guides/sub-account-child-domain) guide.
 
 ```shell
 # Provider-account credential
 terraform import ahasend_smtp_credential.example 00000000-0000-0000-0000-000000000030
 
-# Sub-account credential
+# Sub-account credential: ImportState does not store api_key. Import while the
+# resource uses a child provider alias so the first Read authenticates as the
+# child, then switch to resource-level api_key (see sub-account-child-domain guide).
 terraform import ahasend_smtp_credential.example 00000000-0000-0000-0000-0000000000aa/00000000-0000-0000-0000-000000000030
 ```

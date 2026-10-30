@@ -59,9 +59,36 @@ resource "ahasend_smtp_credential" "child" {
 }
 ```
 
+Rotating the child `api_key` is an in-place update (state only); it does not recreate the SMTP credential or its password.
+
 ## Import
 
 See [Import an existing domain](import-domain). For child domains, import with a child provider alias first (so Read succeeds), then move to the resource `api_key` pattern above.
+
+Child SMTP credentials are the same: `ImportState` does not store `api_key`, so the first Read needs child credentials.
+
+```hcl
+provider "ahasend" {
+  alias      = "child"
+  api_key    = var.child_api_key
+  account_id = var.child_account_id
+}
+
+resource "ahasend_smtp_credential" "child" {
+  provider   = ahasend.child
+  account_id = var.child_account_id
+  name       = "opensocial-smtp"
+  scope      = "scoped"
+  domains    = ["mail.customer.example.com"]
+}
+```
+
+```bash
+terraform import ahasend_smtp_credential.child \
+  00000000-0000-0000-0000-0000000000aa/00000000-0000-0000-0000-000000000030
+```
+
+Then switch the resource to the parent provider, set `api_key` (for example from `ahasend_sub_account_api_key`), and run `terraform apply -refresh=false` so the child key is written into state before the next refresh.
 
 ## Revoked child API key
 
