@@ -35,6 +35,30 @@ resource "ahasend_domain" "child_sending" {
 
 The domain resource stores `api_key` sensitive in state so Read/Delete can authenticate. Provider aliases remain valid when credentials are supplied from variables or a prior apply.
 
+## Sub-account SMTP credential
+
+Child SMTP credentials use the same pattern on [`ahasend_smtp_credential`](../resources/smtp_credential): set `account_id` to the sub-account and `api_key` to a child key with `smtp-credentials:*` scopes.
+
+```hcl
+resource "ahasend_sub_account_api_key" "smtp" {
+  sub_account_id = ahasend_sub_account.project.id
+  label          = "terraform-smtp"
+  scopes = [
+    "smtp-credentials:read:all",
+    "smtp-credentials:write:all",
+    "smtp-credentials:delete:all",
+  ]
+}
+
+resource "ahasend_smtp_credential" "child" {
+  account_id = ahasend_sub_account.project.id
+  api_key    = ahasend_sub_account_api_key.smtp.secret_key
+  name       = "opensocial-smtp"
+  scope      = "scoped"
+  domains    = ["mail.customer.example.com"]
+}
+```
+
 ## Import
 
 See [Import an existing domain](import-domain). For child domains, import with a child provider alias first (so Read succeeds), then move to the resource `api_key` pattern above.

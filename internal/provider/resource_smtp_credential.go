@@ -40,6 +40,8 @@ type SMTPCredentialResource struct {
 // SMTPCredentialResourceModel is the Terraform state model for ahasend_smtp_credential.
 type SMTPCredentialResourceModel struct {
 	ID        types.String `tfsdk:"id"`
+	AccountID types.String `tfsdk:"account_id"`
+	APIKey    types.String `tfsdk:"api_key"`
 	Name      types.String `tfsdk:"name"`
 	Scope     types.String `tfsdk:"scope"`
 	Sandbox   types.Bool   `tfsdk:"sandbox"`
@@ -64,8 +66,10 @@ func (r *SMTPCredentialResource) Metadata(ctx context.Context, req resource.Meta
 func (r *SMTPCredentialResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages an AhaSend SMTP credential. There is no API update endpoint; changing " +
-			"`name`, `scope`, `sandbox`, or `domains` forces a new resource. " +
-			"The one-time `password` is returned on create and preserved in state.",
+			"`name`, `scope`, `sandbox`, `domains`, or `account_id` forces a new resource. " +
+			"The one-time `password` is returned on create and preserved in state. " +
+			"For Platform Partner sub-account credentials in the same root module, set `account_id` to the child " +
+			"account and `api_key` to that child's API key (for example from `ahasend_sub_account_api_key`).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "SMTP credential UUID.",
@@ -73,6 +77,25 @@ func (r *SMTPCredentialResource) Schema(ctx context.Context, req resource.Schema
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
+			},
+			"account_id": schema.StringAttribute{
+				MarkdownDescription: "Account UUID that owns the SMTP credential. Defaults to the provider `account_id`. " +
+					"Set this to a sub-account UUID when managing a child credential (with a matching child `api_key`).",
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
+			"api_key": schema.StringAttribute{
+				MarkdownDescription: "Optional Bearer token for this resource's API calls. " +
+					"When set, overrides the provider `api_key` so a child sub-account key can manage " +
+					"that child's SMTP credential in the same apply as `ahasend_sub_account_api_key`. " +
+					"Stored sensitive in state (required for Read/Delete; write-only is not available on Read). " +
+					"Omit to use the provider credentials.",
+				Optional:  true,
+				Sensitive: true,
 			},
 			"name": schema.StringAttribute{
 				MarkdownDescription: "Unique credential name within the account. Changing this forces a new resource.",
@@ -183,14 +206,20 @@ func (r *SMTPCredentialResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 
+	accountID, diags := r.resolveAccountID(plan.AccountID)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	createReq := requests.CreateSMTPCredentialRequest{
 		Name:    plan.Name.ValueString(),
 		Scope:   plan.Scope.ValueString(),
 		Sandbox: plan.Sandbox.ValueBool(),
 	}
 	if !plan.Domains.IsNull() && !plan.Domains.IsUnknown() {
-		domains, diags := listToStringSlice(ctx, plan.Domains)
-		resp.Diagnostics.Append(diags...)
+		domains, domainDiags := listToStringSlice(ctx, plan.Domains)
+		resp.Diagnostics.Append(domainDiags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -203,11 +232,12 @@ func (r *SMTPCredentialResource) Create(ctx context.Context, req resource.Create
 		return
 	}
 	idempotencyKey := smtpIdempotencyKey(token)
+	opts := append([]api.RequestOption{api.WithIdempotencyKey(idempotencyKey)}, resourceAPIKeyOpts(plan.APIKey)...)
 	created, _, err := r.client.api.SMTPCredentialsAPI.CreateSMTPCredential(
 		ctx,
-		r.client.accountID,
+		accountID,
 		createReq,
-		api.WithIdempotencyKey(idempotencyKey),
+		opts...,
 	)
 	if err != nil {
 		resp.Diagnostics.AddError("Error creating AhaSend SMTP credential", formatAPIError(err))
@@ -215,9 +245,12 @@ func (r *SMTPCredentialResource) Create(ctx context.Context, req resource.Create
 	}
 
 	state := SMTPCredentialResourceModel{}
-	resp.Diagnostics.Append(flattenSMTPCredential(ctx, created, types.StringNull(), &state)...)
+	resp.Diagnostics.Append(flattenSMTPCredential(ctx, created, plan, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	if state.AccountID.IsNull() || state.AccountID.IsUnknown() || state.AccountID.ValueString() == "" {
+		state.AccountID = types.StringValue(accountID.String())
 	}
 	if state.Password.IsNull() || state.Password.ValueString() == "" {
 		resp.Diagnostics.AddError(
@@ -243,7 +276,18 @@ func (r *SMTPCredentialResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
-	cred, _, err := r.client.api.SMTPCredentialsAPI.GetSMTPCredential(ctx, r.client.accountID, id)
+	accountID, accountDiags := r.resolveAccountID(state.AccountID)
+	resp.Diagnostics.Append(accountDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	cred, _, err := r.client.api.SMTPCredentialsAPI.GetSMTPCredential(
+		ctx,
+		accountID,
+		id,
+		resourceAPIKeyOpts(state.APIKey)...,
+	)
 	if err != nil {
 		if isNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -254,17 +298,18 @@ func (r *SMTPCredentialResource) Read(ctx context.Context, req resource.ReadRequ
 	}
 
 	newState := SMTPCredentialResourceModel{}
-	resp.Diagnostics.Append(flattenSMTPCredential(ctx, cred, state.Password, &newState)...)
+	resp.Diagnostics.Append(flattenSMTPCredential(ctx, cred, state, &newState)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	if newState.AccountID.IsNull() || newState.AccountID.IsUnknown() || newState.AccountID.ValueString() == "" {
+		newState.AccountID = types.StringValue(accountID.String())
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &newState)...)
 }
 
 // Update always errors; configuration changes force replacement.
 func (r *SMTPCredentialResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	// sandbox may be the only attribute that can change without RequiresReplace if we forget
-	// a plan modifier; all config fields ForceNew. Treat unexpected Update as replace-only.
 	resp.Diagnostics.AddError(
 		"Unexpected Update",
 		"ahasend_smtp_credential does not support in-place updates. Changing configuration forces replacement.",
@@ -285,28 +330,84 @@ func (r *SMTPCredentialResource) Delete(ctx context.Context, req resource.Delete
 		return
 	}
 
-	_, _, err := r.client.api.SMTPCredentialsAPI.DeleteSMTPCredential(ctx, r.client.accountID, id)
+	accountID, accountDiags := r.resolveAccountID(state.AccountID)
+	resp.Diagnostics.Append(accountDiags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	_, _, err := r.client.api.SMTPCredentialsAPI.DeleteSMTPCredential(
+		ctx,
+		accountID,
+		id,
+		resourceAPIKeyOpts(state.APIKey)...,
+	)
 	if err != nil && !isNotFound(err) {
 		resp.Diagnostics.AddError("Error deleting AhaSend SMTP credential", formatAPIError(err))
 		return
 	}
 }
 
-// ImportState imports by SMTP credential UUID.
+// ImportState imports by SMTP credential UUID or ACCOUNT_ID/CREDENTIAL_UUID.
 func (r *SMTPCredentialResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	id := strings.TrimSpace(req.ID)
-	if _, err := uuid.Parse(id); err != nil {
+	parts := strings.Split(id, "/")
+	switch len(parts) {
+	case 1:
+		if _, err := uuid.Parse(parts[0]); err != nil {
+			resp.Diagnostics.AddError(
+				"Unexpected Import Identifier",
+				fmt.Sprintf("Expected SMTP credential UUID, got: %q", req.ID),
+			)
+			return
+		}
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[0])...)
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("account_id"), r.client.accountID.String())...)
+	case 2:
+		if _, err := uuid.Parse(parts[0]); err != nil {
+			resp.Diagnostics.AddError(
+				"Unexpected Import Identifier",
+				fmt.Sprintf("Expected ACCOUNT_ID to be a UUID in ACCOUNT_ID/CREDENTIAL_UUID, got: %q", parts[0]),
+			)
+			return
+		}
+		if _, err := uuid.Parse(parts[1]); err != nil {
+			resp.Diagnostics.AddError(
+				"Unexpected Import Identifier",
+				fmt.Sprintf("Expected CREDENTIAL_UUID to be a UUID in ACCOUNT_ID/CREDENTIAL_UUID, got: %q", parts[1]),
+			)
+			return
+		}
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("account_id"), parts[0])...)
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
+	default:
 		resp.Diagnostics.AddError(
 			"Unexpected Import Identifier",
-			fmt.Sprintf("Expected SMTP credential UUID, got: %q", req.ID),
+			fmt.Sprintf("Expected import ID of the form CREDENTIAL_UUID or ACCOUNT_ID/CREDENTIAL_UUID, got: %q", req.ID),
 		)
-		return
 	}
-	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), id)...)
 }
 
-// flattenSMTPCredential copies credential fields into state, preserving priorPassword when the API omits it.
-func flattenSMTPCredential(ctx context.Context, cred *responses.SMTPCredential, priorPassword types.String, out *SMTPCredentialResourceModel) diag.Diagnostics {
+// resolveAccountID returns the resource account override or the provider default account.
+func (r *SMTPCredentialResource) resolveAccountID(configured types.String) (uuid.UUID, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	if configured.IsNull() || configured.IsUnknown() || configured.ValueString() == "" {
+		return r.client.accountID, diags
+	}
+	id, err := uuid.Parse(configured.ValueString())
+	if err != nil {
+		diags.AddAttributeError(
+			path.Root("account_id"),
+			"Invalid account_id",
+			err.Error(),
+		)
+		return uuid.Nil, diags
+	}
+	return id, diags
+}
+
+// flattenSMTPCredential copies credential fields into state, preserving prior password and api_key.
+func flattenSMTPCredential(ctx context.Context, cred *responses.SMTPCredential, prior SMTPCredentialResourceModel, out *SMTPCredentialResourceModel) diag.Diagnostics {
 	var diags diag.Diagnostics
 
 	out.ID = types.StringValue(cred.ID.String())
@@ -317,10 +418,20 @@ func flattenSMTPCredential(ctx context.Context, cred *responses.SMTPCredential, 
 	out.CreatedAt = types.StringValue(cred.CreatedAt.UTC().Format(time.RFC3339))
 	out.UpdatedAt = types.StringValue(cred.UpdatedAt.UTC().Format(time.RFC3339))
 
+	// Resource api_key is not returned by the API; preserve from prior state/plan.
+	out.APIKey = prior.APIKey
+
+	// Prefer configured/prior account_id; API may not echo it on SMTP payloads.
+	if !prior.AccountID.IsNull() && !prior.AccountID.IsUnknown() && prior.AccountID.ValueString() != "" {
+		out.AccountID = prior.AccountID
+	} else {
+		out.AccountID = types.StringNull()
+	}
+
 	if cred.Password != "" {
 		out.Password = types.StringValue(cred.Password)
-	} else if !priorPassword.IsNull() && !priorPassword.IsUnknown() {
-		out.Password = priorPassword
+	} else if !prior.Password.IsNull() && !prior.Password.IsUnknown() {
+		out.Password = prior.Password
 	} else {
 		out.Password = types.StringNull()
 	}
