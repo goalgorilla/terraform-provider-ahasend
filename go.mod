@@ -1,6 +1,6 @@
 module github.com/goalgorilla/terraform-provider-ahasend
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/AhaSend/ahasend-go v0.5.0
